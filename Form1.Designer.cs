@@ -1,0 +1,389 @@
+﻿namespace ScrapSystemm
+{
+    partial class Form1
+    {
+        /// <summary>
+        ///  Required designer variable.
+        /// </summary>
+        private System.ComponentModel.IContainer components = null;
+
+        /// <summary>
+        ///  Clean up any resources being used.
+        /// </summary>
+        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        #region Windows Form Designer generated code
+
+        private void InitializeComponent()
+        {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form1));
+            panel1 = new Panel();
+            pictureBox1 = new PictureBox();
+            tabMain = new TabControl();
+            tabRechazos = new TabPage();
+            btnBOM = new Button();
+            btnBoleta = new Button();
+            btnVerBoleta = new Button();
+            btnBuscar = new Button();
+            txtBuscar = new TextBox();
+            label6 = new Label();
+            txtDefecto = new TextBox();
+            txtOperacion = new TextBox();
+            txtStatus = new TextBox();
+            txtNumber = new TextBox();
+            txtLinea = new TextBox();
+            label5 = new Label();
+            label4 = new Label();
+            label3 = new Label();
+            label2 = new Label();
+            label1 = new Label();
+            panel2 = new Panel();
+            labelTurno = new Label();
+            txtTurno = new TextBox();
+            tabBOMTrw = new TabPage();
+            panel3 = new Panel();
+            btnBuscar2 = new Button();
+            txtBuscar2 = new TextBox();
+            label7 = new Label();
+            panel1.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)pictureBox1).BeginInit();
+            tabMain.SuspendLayout();
+            tabRechazos.SuspendLayout();
+            tabBOMTrw.SuspendLayout();
+            SuspendLayout();
+            // 
+            // panel1
+            // 
+            panel1.Controls.Add(pictureBox1);
+            panel1.Dock = DockStyle.Top;
+            panel1.Location = new Point(0, 0);
+            panel1.Name = "panel1";
+            panel1.Size = new Size(1160, 80);
+            panel1.TabIndex = 0;
+            panel1.Paint += panel1_Paint;
+            // 
+            // pictureBox1
+            // 
+            pictureBox1.BackgroundImage = (Image)resources.GetObject("pictureBox1.BackgroundImage");
+            pictureBox1.BackgroundImageLayout = ImageLayout.Stretch;
+            pictureBox1.Location = new Point(458, 0);
+            pictureBox1.Name = "pictureBox1";
+            pictureBox1.Size = new Size(204, 80);
+            pictureBox1.TabIndex = 1;
+            pictureBox1.TabStop = false;
+            pictureBox1.Click += pictureBox1_Click;
+            // 
+            // tabMain
+            // 
+            tabMain.Controls.Add(tabRechazos);
+            tabMain.Controls.Add(tabBOMTrw);
+            tabMain.Dock = DockStyle.Fill;
+            tabMain.Location = new Point(0, 80);
+            tabMain.Name = "tabMain";
+            tabMain.SelectedIndex = 0;
+            tabMain.Size = new Size(1160, 620);
+            tabMain.TabIndex = 100;
+            // 
+            // tabRechazos
+            // 
+            tabRechazos.Controls.Add(btnBOM);
+            tabRechazos.Controls.Add(btnBoleta);
+            tabRechazos.Controls.Add(btnVerBoleta);
+            tabRechazos.Controls.Add(btnBuscar);
+            tabRechazos.Controls.Add(txtBuscar);
+            tabRechazos.Controls.Add(label6);
+            tabRechazos.Controls.Add(txtDefecto);
+            tabRechazos.Controls.Add(txtOperacion);
+            tabRechazos.Controls.Add(txtStatus);
+            tabRechazos.Controls.Add(txtNumber);
+            tabRechazos.Controls.Add(txtLinea);
+            tabRechazos.Controls.Add(label5);
+            tabRechazos.Controls.Add(label4);
+            tabRechazos.Controls.Add(label3);
+            tabRechazos.Controls.Add(label2);
+            tabRechazos.Controls.Add(label1);
+            tabRechazos.Controls.Add(panel2);
+            tabRechazos.Controls.Add(labelTurno);
+            tabRechazos.Controls.Add(txtTurno);
+            tabRechazos.Location = new Point(4, 24);
+            tabRechazos.Name = "tabRechazos";
+            tabRechazos.Padding = new Padding(8);
+            tabRechazos.Size = new Size(1152, 592);
+            tabRechazos.TabIndex = 0;
+            tabRechazos.Text = "Rechazos";
+            tabRechazos.UseVisualStyleBackColor = true;
+            // 
+            // btnBOM
+            // 
+            btnBOM.Location = new Point(913, 179);
+            btnBOM.Name = "btnBOM";
+            btnBOM.Size = new Size(100, 36);
+            btnBOM.TabIndex = 31;
+            btnBOM.Text = "Generar BOM";
+            btnBOM.UseVisualStyleBackColor = true;
+            btnBOM.Click += btnBOM_Click;
+            // 
+            // btnBoleta
+            // 
+            btnBoleta.Location = new Point(1035, 464);
+            btnBoleta.Name = "btnBoleta";
+            btnBoleta.Size = new Size(106, 53);
+            btnBoleta.TabIndex = 30;
+            btnBoleta.Text = "Agregar a bitacora";
+            btnBoleta.UseVisualStyleBackColor = true;
+            // 
+            // btnVerBoleta
+            // 
+            btnVerBoleta.Location = new Point(1041, 545);
+            btnVerBoleta.Name = "btnVerBoleta";
+            btnVerBoleta.Size = new Size(100, 36);
+            btnVerBoleta.TabIndex = 35;
+            btnVerBoleta.Text = "Ver Bitacora";
+            btnVerBoleta.UseVisualStyleBackColor = true;
+            // 
+            // btnBuscar
+            // 
+            btnBuscar.Location = new Point(966, 17);
+            btnBuscar.Name = "btnBuscar";
+            btnBuscar.Size = new Size(100, 23);
+            btnBuscar.TabIndex = 29;
+            btnBuscar.Text = "Buscar";
+            btnBuscar.UseVisualStyleBackColor = true;
+            // 
+            // txtBuscar
+            // 
+            txtBuscar.Location = new Point(130, 16);
+            txtBuscar.Name = "txtBuscar";
+            txtBuscar.Size = new Size(800, 23);
+            txtBuscar.TabIndex = 28;
+            // 
+            // label6
+            // 
+            label6.AutoSize = true;
+            label6.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            label6.Location = new Point(12, 17);
+            label6.Name = "label6";
+            label6.Size = new Size(111, 17);
+            label6.TabIndex = 27;
+            label6.Text = "Escanee la pieza:";
+            // 
+            // txtDefecto
+            // 
+            txtDefecto.Location = new Point(183, 208);
+            txtDefecto.Name = "txtDefecto";
+            txtDefecto.Size = new Size(179, 23);
+            txtDefecto.TabIndex = 26;
+            // 
+            // txtOperacion
+            // 
+            txtOperacion.Location = new Point(100, 164);
+            txtOperacion.Name = "txtOperacion";
+            txtOperacion.Size = new Size(261, 23);
+            txtOperacion.TabIndex = 25;
+            // 
+            // txtStatus
+            // 
+            txtStatus.Location = new Point(76, 127);
+            txtStatus.Name = "txtStatus";
+            txtStatus.Size = new Size(67, 23);
+            txtStatus.TabIndex = 24;
+            // 
+            // txtNumber
+            // 
+            txtNumber.Location = new Point(116, 89);
+            txtNumber.Name = "txtNumber";
+            txtNumber.Size = new Size(245, 23);
+            txtNumber.TabIndex = 23;
+            txtNumber.TextChanged += txtNumber_TextChanged;
+            // 
+            // txtLinea
+            // 
+            txtLinea.Location = new Point(71, 53);
+            txtLinea.Name = "txtLinea";
+            txtLinea.Size = new Size(153, 23);
+            txtLinea.TabIndex = 22;
+            // 
+            // label5
+            // 
+            label5.AutoSize = true;
+            label5.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            label5.Location = new Point(12, 207);
+            label5.Name = "label5";
+            label5.Size = new Size(165, 17);
+            label5.TabIndex = 21;
+            label5.Text = "Descripcion del defecto : ";
+            // 
+            // label4
+            // 
+            label4.AutoSize = true;
+            label4.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            label4.Location = new Point(12, 164);
+            label4.Name = "label4";
+            label4.Size = new Size(83, 17);
+            label4.TabIndex = 20;
+            label4.Text = "Operacion : ";
+            // 
+            // label3
+            // 
+            label3.AutoSize = true;
+            label3.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            label3.Location = new Point(12, 127);
+            label3.Name = "label3";
+            label3.Size = new Size(58, 17);
+            label3.TabIndex = 19;
+            label3.Text = "Status : ";
+            // 
+            // label2
+            // 
+            label2.AutoSize = true;
+            label2.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            label2.Location = new Point(11, 90);
+            label2.Name = "label2";
+            label2.Size = new Size(99, 17);
+            label2.TabIndex = 18;
+            label2.Text = "TRWNumber : ";
+            // 
+            // label1
+            // 
+            label1.AutoSize = true;
+            label1.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            label1.Location = new Point(12, 54);
+            label1.Name = "label1";
+            label1.Size = new Size(53, 17);
+            label1.TabIndex = 17;
+            label1.Text = "Linea : ";
+            // 
+            // panel2
+            // 
+            panel2.Location = new Point(12, 240);
+            panel2.Name = "panel2";
+            panel2.Size = new Size(1001, 341);
+            panel2.TabIndex = 32;
+            // 
+            // labelTurno
+            // 
+            labelTurno.AutoSize = true;
+            labelTurno.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            labelTurno.Location = new Point(491, 59);
+            labelTurno.Name = "labelTurno";
+            labelTurno.Size = new Size(48, 17);
+            labelTurno.TabIndex = 33;
+            labelTurno.Text = "Turno:";
+            // 
+            // txtTurno
+            // 
+            txtTurno.Location = new Point(545, 59);
+            txtTurno.Name = "txtTurno";
+            txtTurno.ReadOnly = true;
+            txtTurno.Size = new Size(70, 23);
+            txtTurno.TabIndex = 34;
+            // 
+            // tabBOMTrw
+            // 
+            tabBOMTrw.Controls.Add(panel3);
+            tabBOMTrw.Controls.Add(btnBuscar2);
+            tabBOMTrw.Controls.Add(txtBuscar2);
+            tabBOMTrw.Controls.Add(label7);
+            tabBOMTrw.Location = new Point(4, 24);
+            tabBOMTrw.Name = "tabBOMTrw";
+            tabBOMTrw.Padding = new Padding(8);
+            tabBOMTrw.Size = new Size(1152, 592);
+            tabBOMTrw.TabIndex = 1;
+            tabBOMTrw.Text = "RechazoComponente";
+            tabBOMTrw.UseVisualStyleBackColor = true;
+            // 
+            // panel3
+            // 
+            panel3.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            panel3.Location = new Point(20, 75);
+            panel3.Name = "panel3";
+            panel3.Size = new Size(1095, 500);
+            panel3.TabIndex = 39;
+            // 
+            // btnBuscar2
+            // 
+            btnBuscar2.Location = new Point(250, 39);
+            btnBuscar2.Name = "btnBuscar2";
+            btnBuscar2.Size = new Size(75, 25);
+            btnBuscar2.TabIndex = 38;
+            btnBuscar2.Text = "Buscar";
+            btnBuscar2.UseVisualStyleBackColor = true;
+            // 
+            // txtBuscar2
+            // 
+            txtBuscar2.Location = new Point(20, 40);
+            txtBuscar2.Name = "txtBuscar2";
+            txtBuscar2.Size = new Size(220, 23);
+            txtBuscar2.TabIndex = 37;
+            // 
+            // label7
+            // 
+            label7.AutoSize = true;
+            label7.Font = new Font("Segoe UI", 9.75F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            label7.Location = new Point(20, 20);
+            label7.Name = "label7";
+            label7.Size = new Size(144, 17);
+            label7.TabIndex = 36;
+            label7.Text = "Buscar BOM por TRW:";
+            // 
+            // Form1
+            // 
+            AutoScaleDimensions = new SizeF(7F, 15F);
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(1160, 700);
+            Controls.Add(tabMain);
+            Controls.Add(panel1);
+            Name = "Form1";
+            Text = "Form1";
+            Load += Form1_Load;
+            panel1.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)pictureBox1).EndInit();
+            tabMain.ResumeLayout(false);
+            tabRechazos.ResumeLayout(false);
+            tabRechazos.PerformLayout();
+            tabBOMTrw.ResumeLayout(false);
+            tabBOMTrw.PerformLayout();
+            ResumeLayout(false);
+        }
+
+        #endregion
+
+        private Panel panel1;
+        private PictureBox pictureBox1;
+        private TabControl tabMain;
+        private TabPage tabRechazos;
+        private TabPage tabBOMTrw;
+        private Button btnBOM;
+        private Button btnBoleta;
+        private Button btnVerBoleta;
+        private Button btnBuscar;
+        private TextBox txtBuscar;
+        private Label label6;
+        private TextBox txtDefecto;
+        private TextBox txtOperacion;
+        private TextBox txtStatus;
+        private TextBox txtNumber;
+        private TextBox txtLinea;
+        private Label label5;
+        private Label label4;
+        private Label label3;
+        private Label label2;
+        private Label label1;
+        private Panel panel2;
+        private Label labelTurno;
+        private TextBox txtTurno;
+        // nuevos
+        private Label label7;
+        private TextBox txtBuscar2;
+        private Button btnBuscar2;
+        private Panel panel3;
+    }
+}

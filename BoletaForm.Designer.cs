@@ -1,0 +1,110 @@
+namespace ScrapSystemm
+{
+    partial class BoletaForm
+    {
+        /// <summary>
+        /// Required designer variable.
+        /// </summary>
+        private System.ComponentModel.IContainer components = null;
+
+        /// <summary>
+        /// Clean up any resources being used.
+        /// </summary>
+        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        #region Windows Form Designer generated code
+
+        /// <summary>
+        /// Required method for Designer support - do not modify
+        /// the contents of this method with the code editor.
+        /// </summary>
+        private void InitializeComponent()
+        {
+            this.gridBoleta = new System.Windows.Forms.DataGridView();
+            this.btnCerrar = new System.Windows.Forms.Button();
+            this.btnImprimir = new System.Windows.Forms.Button();
+            this.lblTitulo = new System.Windows.Forms.Label();
+            ((System.ComponentModel.ISupportInitialize)(this.gridBoleta)).BeginInit();
+            this.SuspendLayout();
+            // 
+            // gridBoleta
+            // 
+            this.gridBoleta.AllowUserToAddRows = false;
+            this.gridBoleta.AllowUserToDeleteRows = false;
+            this.gridBoleta.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
+            this.gridBoleta.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.gridBoleta.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.gridBoleta.Location = new System.Drawing.Point(0, 40);
+            this.gridBoleta.MultiSelect = false;
+            this.gridBoleta.Name = "gridBoleta";
+            this.gridBoleta.ReadOnly = true;
+            this.gridBoleta.RowHeadersVisible = false;
+            this.gridBoleta.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+            this.gridBoleta.Size = new System.Drawing.Size(984, 621);
+            this.gridBoleta.TabIndex = 0;
+            // 
+            // btnCerrar
+            // 
+            this.btnCerrar.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnCerrar.Location = new System.Drawing.Point(890, 8);
+            this.btnCerrar.Name = "btnCerrar";
+            this.btnCerrar.Size = new System.Drawing.Size(82, 26);
+            this.btnCerrar.TabIndex = 1;
+            this.btnCerrar.Text = "Cerrar";
+            this.btnCerrar.UseVisualStyleBackColor = true;
+            this.btnCerrar.Click += new System.EventHandler(this.btnCerrar_Click);
+            // 
+            // btnImprimir
+            // 
+            this.btnImprimir.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnImprimir.Location = new System.Drawing.Point(800, 8);
+            this.btnImprimir.Name = "btnImprimir";
+            this.btnImprimir.Size = new System.Drawing.Size(82, 26);
+            this.btnImprimir.TabIndex = 3;
+            this.btnImprimir.Text = "Imprimir";
+            this.btnImprimir.UseVisualStyleBackColor = true;
+            // 
+            // lblTitulo
+            // 
+            this.lblTitulo.Dock = System.Windows.Forms.DockStyle.Top;
+            this.lblTitulo.Font = new System.Drawing.Font("Segoe UI", 12F, System.Drawing.FontStyle.Bold);
+            this.lblTitulo.Location = new System.Drawing.Point(0, 0);
+            this.lblTitulo.Name = "lblTitulo";
+            this.lblTitulo.Padding = new System.Windows.Forms.Padding(8, 8, 8, 4);
+            this.lblTitulo.Size = new System.Drawing.Size(984, 40);
+            this.lblTitulo.TabIndex = 2;
+            this.lblTitulo.Text = "Bitacora de Rechazos";
+            // 
+            // BoletaForm
+            // 
+            this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.ClientSize = new System.Drawing.Size(984, 661);
+            this.Controls.Add(this.btnImprimir);
+            this.Controls.Add(this.btnCerrar);
+            this.Controls.Add(this.gridBoleta);
+            this.Controls.Add(this.lblTitulo);
+            this.Name = "BoletaForm";
+            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
+            this.Text = "Boleta";
+            ((System.ComponentModel.ISupportInitialize)(this.gridBoleta)).EndInit();
+            this.ResumeLayout(false);
+
+        }
+
+        #endregion
+
+        private System.Windows.Forms.DataGridView gridBoleta;
+        private System.Windows.Forms.Button btnCerrar;
+        private System.Windows.Forms.Button btnImprimir;
+        private System.Windows.Forms.Label lblTitulo;
+    }
+}
