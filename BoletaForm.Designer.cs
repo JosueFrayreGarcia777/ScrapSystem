@@ -31,6 +31,7 @@ namespace ScrapSystemm
             this.gridBoleta = new System.Windows.Forms.DataGridView();
             this.btnCerrar = new System.Windows.Forms.Button();
             this.btnImprimir = new System.Windows.Forms.Button();
+            this.btnEditar = new System.Windows.Forms.Button();
             this.lblTitulo = new System.Windows.Forms.Label();
             ((System.ComponentModel.ISupportInitialize)(this.gridBoleta)).BeginInit();
             this.SuspendLayout();
@@ -72,6 +73,16 @@ namespace ScrapSystemm
             this.btnImprimir.Text = "Imprimir";
             this.btnImprimir.UseVisualStyleBackColor = true;
             // 
+            // btnEditar
+            // 
+            this.btnEditar.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnEditar.Location = new System.Drawing.Point(710, 8);
+            this.btnEditar.Name = "btnEditar";
+            this.btnEditar.Size = new System.Drawing.Size(82, 26);
+            this.btnEditar.TabIndex = 4;
+            this.btnEditar.Text = "Editar";
+            this.btnEditar.UseVisualStyleBackColor = true;
+            // 
             // lblTitulo
             // 
             this.lblTitulo.Dock = System.Windows.Forms.DockStyle.Top;
@@ -88,6 +99,7 @@ namespace ScrapSystemm
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(984, 661);
+            this.Controls.Add(this.btnEditar);
             this.Controls.Add(this.btnImprimir);
             this.Controls.Add(this.btnCerrar);
             this.Controls.Add(this.gridBoleta);
@@ -105,6 +117,7 @@ namespace ScrapSystemm
         private System.Windows.Forms.DataGridView gridBoleta;
         private System.Windows.Forms.Button btnCerrar;
         private System.Windows.Forms.Button btnImprimir;
+        private System.Windows.Forms.Button btnEditar;
         private System.Windows.Forms.Label lblTitulo;
     }
 }

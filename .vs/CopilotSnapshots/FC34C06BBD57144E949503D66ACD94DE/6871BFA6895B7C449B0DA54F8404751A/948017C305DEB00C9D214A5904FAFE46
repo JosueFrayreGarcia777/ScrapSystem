@@ -1,0 +1,1333 @@
+﻿using Microsoft.Data.SqlClient;
+using System.Configuration;
+using System.Data;
+
+namespace ScrapSystemm
+{
+    public partial class Form1 : Form
+    {
+        private readonly string _DBConnection =
+            ConfigurationManager.ConnectionStrings["DBConnection"]?.ConnectionString ??
+            throw new InvalidOperationException("Connection string 'DBConnection' not found.");
+
+        // Tabla de boleta en memoria
+        private readonly DataTable _boleta = new DataTable();
+        private DataGridView? _gridBOM;
+        private BoletaForm? _boletaForm;
+
+        private ListBox? suggestionBox;
+        private TextBox? currentSuggestingTextBox;
+
+        // Límite y helper para contar renglones agrupados
+        private const int LIMITE_RENGLONES = 95;
+        private int ObtenerRenglonesAgrupados()
+        {
+            var view = new DataView(_boleta);
+            var grouped = BoletaForm.BuildGroupedTable(view);
+            return grouped.Rows.Count;
+        }
+
+        public Form1()
+        {
+            InitializeComponent();
+            InitializeSuggestionBox();
+            this.Load += Form1_Load;
+
+            // Ajuste dinámico de tabMain para márgenes uniformes
+            this.Resize += (s, e) => AjustarTabMainMargen();
+            AjustarTabMainMargen();
+
+            // Foco inicial al abrir la app: escanear inmediatamente
+            this.Shown += (s, e) =>
+            {
+                txtBuscar.Focus();
+                txtBuscar.SelectAll();
+            };
+
+            txtBuscar.KeyDown += TxtBuscar_KeyDown;
+
+            btnBuscar.Click += BtnBuscar_Click;
+
+            // eventos para la nueva búsqueda por TRW explícito
+            btnBuscar2.Click += BtnBuscar2_Click;
+            txtBuscar2.KeyDown += async (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.SuppressKeyPress = true;
+                    await BuscarBOMPorTRWAsync();
+                }
+            };
+
+            // eventos para búsqueda por número de componente específico
+            btnBuscarComponente.Click += BtnBuscarComponente_Click;
+            txtBuscarComponente.KeyDown += async (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.SuppressKeyPress = true;
+                    await BuscarPorNumeroComponenteAsync();
+                }
+            };
+
+            // Eventos de autocompletado para campos de entrada manual
+            txtLinea.TextChanged += async (s, e) => await SuggestLineaAsync();
+            txtNumber.TextChanged += async (s, e) => await SuggestNumberAsync();
+            txtDefecto.TextChanged += async (s, e) => await SuggestDefectoAsync();
+
+            // Ocultar sugerencias cuando se pierde el foco
+            txtLinea.Leave += (s, e) => HideSuggestions();
+            txtNumber.Leave += (s, e) => HideSuggestions();
+            txtDefecto.Leave += (s, e) => HideSuggestions();
+
+            // Manejar navegación con teclado en campos de autocompletado
+            txtLinea.KeyDown += HandleAutoCompleteKeyDown;
+            txtNumber.KeyDown += HandleAutoCompleteKeyDown;
+            txtDefecto.KeyDown += HandleAutoCompleteKeyDown;
+
+            // columnas _boleta...
+            _boleta.Columns.Add("Turno", typeof(string));
+            _boleta.Columns.Add("Linea", typeof(string));
+            _boleta.Columns.Add("NumeroParte", typeof(string));
+            _boleta.Columns.Add("ComponenteCodigo", typeof(string));
+            _boleta.Columns.Add("Componente", typeof(string));
+            _boleta.Columns.Add("DescripcionDefecto", typeof(string));
+            _boleta.Columns.Add("Cantidad", typeof(decimal));
+            _boleta.Columns.Add("Unidad", typeof(string));
+            _boleta.Columns.Add("RegistroId", typeof(string));
+            _boleta.Columns.Add("Omitido", typeof(bool)); // nuevos: marcar componentes con qty=0
+            _boleta.Columns.Add("Origen", typeof(string)); // NUEVO: separar origen de captura
+
+
+            btnBoleta.Click += Button1_Click;
+            btnVerBoleta.Click += BtnVerBoleta_Click;
+                   }
+
+        private void BtnVerBoleta_Click(object? sender, EventArgs e)
+        {
+            MostrarBoletaForm();
+        }
+
+        private void MostrarBoletaForm()
+        {
+            // Mostrar SIEMPRE todo lo capturado en la bitácora (sin filtros)
+            var turno = string.Empty;
+            var linea = string.Empty;
+            var numeroParte = string.Empty;
+
+            if (_boletaForm == null || _boletaForm.IsDisposed)
+            {
+                _boletaForm = new BoletaForm(_boleta, turno, linea, numeroParte);
+                _boletaForm.StartPosition = FormStartPosition.CenterParent;
+                _boletaForm.FormClosed += (s, args) => _boletaForm = null;
+                _boletaForm.Show(this);
+            }
+            else
+            {
+                _boletaForm.ApplyFilter(turno, linea, numeroParte);
+                _boletaForm.BringToFront();
+            }
+        }
+
+        private void Button1_Click(object? sender, EventArgs e)
+        {
+            if (_gridBOM is null)
+            {
+                MessageBox.Show("Primero genera la BOM.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var turno = txtTurno.Text?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(turno))
+            {
+                MessageBox.Show("No se pudo determinar el turno.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var linea = txtLinea.Text?.Trim() ?? string.Empty;
+            var numeroParte = txtNumber.Text?.Trim() ?? string.Empty;
+            var defecto = txtDefecto.Text?.Trim() ?? string.Empty;
+
+            // Pedir cantidad de piezas a agregar
+            var cantidadPiezas = QuantityPrompt.Show(this, "Agregar a bitácora", "¿Cuántas piezas iguales desea agregar?", 1, 0);
+            if (cantidadPiezas is null || cantidadPiezas.Value <= 0)
+            {
+                MessageBox.Show("La cantidad debe ser mayor que 0.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            int piezas = (int)cantidadPiezas.Value;
+
+            // Resolver columnas de código, descripción, cantidad y unidad
+            var codeCol = _gridBOM.Columns["Component"]
+                         ?? _gridBOM.Columns.Cast<DataGridViewColumn>()
+                              .FirstOrDefault(c => string.Equals(c.DataPropertyName, "Component", StringComparison.OrdinalIgnoreCase));
+            var descCol = _gridBOM.Columns["MaterialDescription"]
+                          ?? _gridBOM.Columns.Cast<DataGridViewColumn>()
+                               .FirstOrDefault(c => string.Equals(c.DataPropertyName, "MaterialDescription", StringComparison.OrdinalIgnoreCase));
+            var qtyCol = _gridBOM.Columns["ComponentQuantity"]
+                         ?? _gridBOM.Columns.Cast<DataGridViewColumn>()
+                              .FirstOrDefault(c => string.Equals(c.DataPropertyName, "ComponentQuantity", StringComparison.OrdinalIgnoreCase));
+            var unitCol = _gridBOM.Columns["ComponentUnity"]
+                          ?? _gridBOM.Columns.Cast<DataGridViewColumn>()
+                               .FirstOrDefault(c => string.Equals(c.DataPropertyName, "ComponentUnity", StringComparison.OrdinalIgnoreCase));
+
+            if (codeCol is null || descCol is null || qtyCol is null || unitCol is null)
+            {
+                MessageBox.Show("No se encontraron columnas de BOM necesarias (Component/MaterialDescription/ComponentQuantity/ComponentUnity).", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Generar un RegistroId para este 'tiro' completo
+            var registroId = Guid.NewGuid().ToString();
+
+            int agregados = 0;
+            int omitidos = 0;
+            foreach (DataGridViewRow row in _gridBOM.Rows)
+            {
+                if (row.IsNewRow) continue;
+
+                // unidad obligatoria: si está vacía, ignorar por completo
+                var unidad = Convert.ToString(row.Cells[unitCol.Index].Value)?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(unidad))
+                {
+                    continue; // no agregar ni mostrar componentes sin unidad
+                }
+
+                // cantidad
+                decimal qty = 0;
+                var qtyObj = row.Cells[qtyCol.Index].Value;
+                if (qtyObj != null && qtyObj != DBNull.Value)
+                {
+                    decimal.TryParse(Convert.ToString(qtyObj), out qty);
+                }
+
+                var componenteDesc = Convert.ToString(row.Cells[descCol.Index].Value) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(componenteDesc)) continue;
+                var componenteCod = Convert.ToString(row.Cells[codeCol.Index].Value) ?? string.Empty;
+
+                var newRow = _boleta.NewRow();
+                newRow["Turno"] = turno;
+                newRow["Linea"] = linea;
+                newRow["NumeroParte"] = numeroParte;
+                newRow["ComponenteCodigo"] = componenteCod;
+                newRow["Componente"] = componenteDesc;
+                newRow["DescripcionDefecto"] = defecto;
+                newRow["Cantidad"] = piezas; // Usar la cantidad ingresada por el usuario
+                newRow["Unidad"] = unidad;
+                newRow["RegistroId"] = registroId;
+                newRow["Omitido"] = qty <= 0; // marcar omitidos
+                newRow["Origen"] = "RECHAZO"; // marcar origen
+                _boleta.Rows.Add(newRow);
+
+                if (qty > 0) agregados++; else omitidos++;
+            }
+
+            if (agregados == 0 && omitidos == 0)
+            {
+                MessageBox.Show("No hay componentes válidos en la BOM (todos sin unidad).", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Mostrar/actualizar la ventana de boleta
+            MostrarBoletaForm();
+
+            // Limitar a 95 renglones agrupados en la bitácora
+            if (ObtenerRenglonesAgrupados() >= LIMITE_RENGLONES)
+            {
+                MessageBox.Show($"La bitácora ha alcanzado el máximo de {LIMITE_RENGLONES} renglones. Imprima la hoja antes de continuar.", "Límite de bitácora", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                _boleta.Clear();
+                panel2.Controls.Clear();
+                _gridBOM = null;
+                txtBuscar.Focus();
+                return;
+            }
+
+            // Reiniciar formulario (excepto turno que es calculado en próxima lectura)
+            txtBuscar.Clear();
+            txtLinea.Clear();
+            txtNumber.Clear();
+            txtStatus.Clear();
+            txtOperacion.Clear();
+            txtDefecto.Clear();
+            txtTurno.Clear();
+            panel2.Controls.Clear();
+            _gridBOM = null;
+            txtBuscar.Focus();
+        }
+
+        private void pictureBox1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void panel1_Paint(object sender, PaintEventArgs e)
+        {
+            this.panel1.BackColor = Color.FromArgb(41, 41, 41);
+        }
+
+        private async void Form1_Load(object sender, EventArgs e)
+        {
+            this.WindowState = FormWindowState.Maximized; // Maximiza la ventana al cargar
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+
+                await conn.CloseAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"DB connection failed : {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private async void BtnBuscar_Click(object? sender, EventArgs e)
+        {
+            await BuscarYLLenarAsync();
+        }
+
+        private async void TxtBuscar_KeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                await BuscarYLLenarAsync();
+            }
+        }
+
+        private static string CalcularTurnoPorHoraInt(int hour24)
+        {
+            // Normaliza 24 -> 0 (medianoche)
+            if (hour24 == 24) hour24 = 0;
+            if (hour24 < 0 || hour24 > 24) return string.Empty;
+
+            // Reglas por rangos con hora entera (sin minutos):
+            // A: 07:00 - 16:59 => 7..16
+            // B: 17:00 - 01:59 => 17..24 y 1
+            // C: 02:00 - 06:59 => 2..6
+            if (hour24 >= 7 && hour24 <= 16) return "A";
+            if (hour24 == 1 || hour24 >= 17 || hour24 == 0) return "B"; // incluye 0 (=24)
+            return "C"; // 2..6
+        }
+
+        private static string CalcularTurnoPorHora(TimeSpan hora)
+        {
+            var t0700 = new TimeSpan(7, 0, 0);
+            var t1630 = new TimeSpan(16, 30, 0);
+            var t0100 = new TimeSpan(1, 0, 0);
+
+            if (hora >= t0700 && hora < t1630) return "A";
+            if (hora >= t1630 || hora < t0100) return "B";
+            return "C";
+        }
+
+        private static object? GetValueIfExists(IDataRecord record, string columnName)
+        {
+            for (int i = 0; i < record.FieldCount; i++)
+            {
+                if (string.Equals(record.GetName(i), columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return record.IsDBNull(i) ? null : record.GetValue(i);
+                }
+            }
+            return null;
+        }
+
+        private async Task BuscarYLLenarAsync()
+        {
+            var codigo = txtBuscar.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(codigo))
+            {
+                LimpiarCampos();
+                return;
+            }
+
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+
+                // Traer fila y usar la columna Hour (1..24) para el turno (sin ORDER BY Id)
+                var sql = @"SELECT TOP(1) * FROM [dbo].[LineRejects] WHERE [RejectCode] = @code";
+
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.Add(new SqlParameter("@code", System.Data.SqlDbType.NVarChar, 100) { Value = codigo });
+
+                await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow);
+                if (await reader.ReadAsync())
+                {
+                    txtLinea.Text = Convert.ToString(GetValueIfExists(reader, "Line"));
+                    txtNumber.Text = Convert.ToString(GetValueIfExists(reader, "TRWNumber"));
+
+                    var statusRaw = Convert.ToString(GetValueIfExists(reader, "Status"));
+                    txtStatus.Text = TraducirStatus(statusRaw);
+
+                    txtOperacion.Text = Convert.ToString(GetValueIfExists(reader, "WorkOperationNameES"));
+                    txtDefecto.Text = Convert.ToString(GetValueIfExists(reader, "RejectTypeNameES"));
+
+                    // Calcular turno basado en columna Hour (1..24)
+                    string turno = string.Empty;
+                    var hourVal = GetValueIfExists(reader, "Hour");
+                    if (hourVal != null)
+                    {
+                        int h;
+                        if (hourVal is int ih) h = ih;
+                        else if (hourVal is long l) h = (int)l;
+                        else if (hourVal is short s) h = s;
+                        else if (int.TryParse(Convert.ToString(hourVal), out var parsedH)) h = parsedH;
+                        else h = DateTime.Now.Hour;
+                        turno = CalcularTurnoPorHoraInt(h);
+                    }
+                    else
+                    {
+                        // Fallback por si no existe Hour
+                        var candidates = new[] { "Time", "Hora", "DateTime", "Datetime", "FechaHora", "Fecha", "Date", "CreatedAt", "CreatedOn", "InsertDate", "InsertedAt", "RejectTime", "RejectDate", "RejectDateTime", "Timestamp" };
+                        TimeSpan hora = DateTime.Now.TimeOfDay;
+                        foreach (var col in candidates)
+                        {
+                            var val = GetValueIfExists(reader, col);
+                            if (val == null) continue;
+                            if (val is TimeSpan ts) { hora = ts; break; }
+                            if (val is DateTime dt) { hora = dt.TimeOfDay; break; }
+                            if (TimeSpan.TryParse(Convert.ToString(val), out var ts2)) { hora = ts2; break; }
+                            if (DateTime.TryParse(Convert.ToString(val), out var dt2)) { hora = dt2.TimeOfDay; break; }
+                        }
+                        turno = CalcularTurnoPorHora(hora);
+                    }
+
+                    txtTurno.Text = turno;
+                }
+                else
+                {
+                    LimpiarCampos();
+                    MessageBox.Show("No se encontraron datos para el código.", "Sin resultados", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al buscar: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static string TraducirStatus(string? status)
+        {
+            return status?.Trim().ToUpperInvariant() switch
+            {
+                "C" => "recibido",
+                "O" => "no recibido",
+                _ => string.IsNullOrEmpty(status) ? string.Empty : status
+            };
+        }
+
+        private void LimpiarCampos()
+        {
+            txtLinea.Clear();
+            txtNumber.Clear();
+            txtStatus.Clear();
+            txtOperacion.Clear();
+            txtDefecto.Clear();
+            txtTurno.Clear();
+        }
+
+        private void panel2_Paint(object sender, PaintEventArgs e)
+        {
+
+        }
+
+        private async void btnBOM_Click(object sender, EventArgs e)
+        {
+            await GenerarBOMAsync();
+        }
+
+        private static string ExtraerMaterialBase(string? trwNumber)
+        {
+            if (string.IsNullOrWhiteSpace(trwNumber)) return string.Empty;
+            var val = trwNumber.Trim();
+            var idx = val.IndexOf('-');
+            return idx > 0 ? val.Substring(0, idx) : val;
+        }
+
+        private async Task GenerarBOMAsync()
+        {
+            var pieza = txtNumber.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(pieza))
+            {
+                MessageBox.Show("Ingrese o seleccione un TRWNumber antes de generar la BOM.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var materialBase = ExtraerMaterialBase(pieza);
+            if (string.IsNullOrEmpty(materialBase))
+            {
+                MessageBox.Show("El TRWNumber es inválido.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+
+                var sql = @"SELECT [Component], [MaterialDescription], [ComponentQuantity], [ComponentUnity]
+                            FROM [dbo].[BOM]
+                            WHERE [Material] = @material";
+
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.Add(new SqlParameter("@material", SqlDbType.VarChar, 100) { Value = materialBase });
+
+                var table = new DataTable();
+                table.Columns.Add("Component", typeof(string));
+                table.Columns.Add("MaterialDescription", typeof(string));
+                table.Columns.Add("ComponentQuantity", typeof(decimal));
+                table.Columns.Add("ComponentUnity", typeof(string));
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var compCode = reader["Component"]?.ToString() ?? string.Empty;
+                    var desc = reader["MaterialDescription"]?.ToString() ?? string.Empty;
+                    var qtyObj = reader["ComponentQuantity"];
+                    decimal qty = 0;
+                    if (qtyObj != DBNull.Value) qty = Convert.ToDecimal(qtyObj);
+                    var unity = (reader["ComponentUnity"]?.ToString() ?? string.Empty).Trim();
+
+                    // excluir componentes sin unidad (vacía)
+                    if (string.IsNullOrWhiteSpace(unity))
+                        continue;
+
+                    table.Rows.Add(compCode, desc, qty, unity);
+                }
+
+                await RenderBOMEnPanelAsync(table);
+
+                if (table.Rows.Count == 0)
+                {
+                    MessageBox.Show("No se encontraron componentes con unidad para el material base.", "Sin resultados", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al generar BOM: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private async void RenderBOMEnPanel(DataTable datos)
+        {
+            // Legacy shim if any caller still calls non-async version
+            await RenderBOMEnPanelAsync(datos);
+        }
+
+        private async Task RenderBOMEnPanelAsync(DataTable datos)
+        {
+            panel2.SuspendLayout();
+            try
+            {
+                panel2.Controls.Clear();
+
+                var grid = new DataGridView
+                {
+                    Dock = DockStyle.Fill,
+                    ReadOnly = false,
+                    AutoGenerateColumns = false,
+                    AllowUserToAddRows = false,
+                    AllowUserToDeleteRows = false,
+                    RowHeadersVisible = false,
+                    SelectionMode = DataGridViewSelectionMode.CellSelect,
+                    EditMode = DataGridViewEditMode.EditOnEnter
+                };
+
+
+                var colCode = new DataGridViewTextBoxColumn
+                {
+                    Name = "Component",
+                    DataPropertyName = "Component",
+                    HeaderText = "Codigo",
+                    Visible = false
+                };
+                var colDesc = new DataGridViewTextBoxColumn
+                {
+                    Name = "MaterialDescription",
+                    DataPropertyName = "MaterialDescription",
+                    HeaderText = "Material Description",
+                    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                    ReadOnly = true,
+                    SortMode = DataGridViewColumnSortMode.NotSortable
+                };
+
+                var colQty = new DataGridViewNumericUpDownColumn
+                {
+                    Name = "ComponentQuantity",
+                    DataPropertyName = "ComponentQuantity",
+                    HeaderText = "Qty",
+                    Width = 100,
+                    ReadOnly = false,
+                    DecimalPlaces = 3,
+                    Increment = 0.001m,
+                    Minimum = 0m,
+                    Maximum = 1000000m,
+                    ThousandsSeparator = false
+                };
+
+                var colUnit = new DataGridViewTextBoxColumn
+                {
+                    Name = "ComponentUnity",
+                    DataPropertyName = "ComponentUnity",
+                    HeaderText = "Unit",
+                    Width = 80,
+                    ReadOnly = true,
+                    SortMode = DataGridViewColumnSortMode.NotSortable
+                };
+
+                // Añadir columna de acción (Ver BOM) y manejar click para cargar sub-BOM en el mismo panel
+                var colView = new DataGridViewButtonColumn
+                {
+                    Name = "ViewBOM",
+                    HeaderText = "",
+                    Text = "Ver BOM",
+                    UseColumnTextForButtonValue = true,
+                    Width = 90
+                };
+
+                grid.Columns.Add(colCode);
+                grid.Columns.Add(colDesc);
+                grid.Columns.Add(colQty);
+                grid.Columns.Add(colUnit);
+                grid.Columns.Add(colView);
+
+
+                grid.CellEnter += (s, e) =>
+                {
+                    if (e.ColumnIndex == colQty.Index && e.RowIndex >= 0)
+                    {
+                        grid.BeginEdit(true);
+                    }
+                };
+
+                grid.DataBindingComplete += (s, e) =>
+                {
+                    if (grid.Rows.Count > 0)
+                    {
+                        grid.CurrentCell = grid.Rows[0].Cells[colQty.Index];
+                        grid.BeginEdit(true);
+                    }
+                };
+
+                grid.DataError += (s, e) =>
+                {
+
+                    e.Cancel = true;
+                };
+
+                grid.KeyDown += (s, e) =>
+                {
+                    if (e.KeyCode == Keys.Delete)
+                    {
+                        foreach (DataGridViewCell cell in grid.SelectedCells)
+                        {
+                            if (cell.OwningColumn.DataPropertyName == "ComponentQuantity" && !cell.ReadOnly)
+                            {
+                                cell.Value = 0m;
+                            }
+                        }
+                        e.Handled = true;
+                    }
+                };
+
+                // Manejar clicks en botones (ver BOM)
+                grid.CellContentClick += async (s, e) =>
+                {
+                    if (e.RowIndex < 0) return;
+                    var col = grid.Columns[e.ColumnIndex];
+                    if (col == null) return;
+                    if (col.Name == "ViewBOM")
+                    {
+                        var compCode = grid.Rows[e.RowIndex].Cells[colCode.Index].Value?.ToString();
+                        if (!string.IsNullOrWhiteSpace(compCode))
+                        {
+                            await AppendSubBOMToGridAsync(compCode, grid, e.RowIndex);
+                        }
+                    }
+                };
+
+
+                grid.DataSource = datos;
+                panel2.Controls.Add(grid);
+                _gridBOM = grid;
+
+                // Auto-expand sub-BOMs for components that have BOMs (no notification popups)
+                var originalRows = datos.Rows.Cast<DataRow>().Select((r, idx) => new { Code = r["Component"]?.ToString() ?? string.Empty, Index = idx }).ToList();
+                int offset = 0;
+                for (int i = 0; i < originalRows.Count; i++)
+                {
+                    var code = originalRows[i].Code;
+                    if (string.IsNullOrWhiteSpace(code)) continue;
+                    int insertAfter = originalRows[i].Index + offset;
+                    int added = await AppendSubBOMToGridAsync(code, grid, insertAfter, showMessageIfNone: false);
+                    offset += added;
+                }
+            }
+            finally
+            {
+                panel2.ResumeLayout();
+            }
+        }
+
+        // Nuevo método para recargar el BOM en el panel principal
+        private async Task CargarBOMEnPanelPrincipalAsync(string materialBase)
+        {
+            materialBase = ExtraerMaterialBase(materialBase);
+            if (string.IsNullOrEmpty(materialBase))
+            {
+                MessageBox.Show("El número de componente es inválido.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+                var sql = @"SELECT [Component], [MaterialDescription], [ComponentQuantity], [ComponentUnity] FROM [dbo].[BOM] WHERE [Material] = @material";
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.Add(new SqlParameter("@material", SqlDbType.VarChar, 100) { Value = materialBase });
+                var table = new DataTable();
+                table.Columns.Add("Component", typeof(string));
+                table.Columns.Add("MaterialDescription", typeof(string));
+                table.Columns.Add("ComponentQuantity", typeof(decimal));
+                table.Columns.Add("ComponentUnity", typeof(string));
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var compCode = reader["Component"]?.ToString() ?? string.Empty;
+                    var desc = reader["MaterialDescription"]?.ToString() ?? string.Empty;
+                    var qtyObj = reader["ComponentQuantity"];
+                    decimal qty = 0;
+                    if (qtyObj != DBNull.Value) qty = Convert.ToDecimal(qtyObj);
+                    var unity = (reader["ComponentUnity"]?.ToString() ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(unity)) continue;
+                    table.Rows.Add(compCode, desc, qty, unity);
+                }
+                await RenderBOMEnPanelAsync(table);
+                if (table.Rows.Count == 0)
+                {
+                    MessageBox.Show("No se encontraron componentes con unidad para el material base.", "Sin resultados", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al generar BOM: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // NUEVO: Mostrar BOM de subensamble en ventana modal
+        private async Task MostrarBOMSubensambleAsync(string componentCode)
+        {
+            var materialBase = ExtraerMaterialBase(componentCode);
+            if (string.IsNullOrEmpty(materialBase))
+            {
+                MessageBox.Show("El número de componente es inválido.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            // Verificar si el componente tiene BOM antes de abrir la ventana
+            bool tieneBOM = false;
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+                var sql = "SELECT COUNT(*) FROM [dbo].[BOM] WHERE [Material] = @material";
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.Add(new SqlParameter("@material", SqlDbType.VarChar, 100) { Value = materialBase });
+                var count = (int)await cmd.ExecuteScalarAsync();
+                tieneBOM = count > 0;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al consultar BOM: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (!tieneBOM)
+            {
+                MessageBox.Show("Este componente no cuenta con BOM.", "Sin BOM", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            // Si tiene BOM, abrir la ventana
+            var subForm = new SubBOMForm(_DBConnection, materialBase, _boleta);
+            subForm.StartPosition = FormStartPosition.CenterParent;
+            subForm.ShowDialog(this);
+        }
+
+        private async void BtnBuscar2_Click(object? sender, EventArgs e)
+        {
+            await BuscarBOMPorTRWAsync();
+        }
+
+        private async void BtnBuscarComponente_Click(object? sender, EventArgs e)
+        {
+            await BuscarPorNumeroComponenteAsync();
+        }
+
+        private async Task BuscarPorNumeroComponenteAsync()
+        {
+            var componenteNumero = txtBuscarComponente.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(componenteNumero))
+            {
+                MessageBox.Show("Ingrese un número de componente.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var materialBase = ExtraerMaterialBase(componenteNumero);
+            if (string.IsNullOrEmpty(materialBase))
+            {
+                MessageBox.Show("El número de componente es inválido.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+
+                // Buscar el componente específico en la tabla BOM
+                var sql = @"SELECT TOP(1) [Component], [MaterialDescription], [ComponentUnity]
+                            FROM [dbo].[BOM]
+                            WHERE [Component] = @component";
+
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.Add(new SqlParameter("@component", SqlDbType.VarChar, 100) { Value = materialBase });
+
+                var table = new DataTable();
+                table.Columns.Add("Component", typeof(string));
+                table.Columns.Add("MaterialDescription", typeof(string));
+                table.Columns.Add("ComponentUnity", typeof(string));
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var compCode = reader["Component"]?.ToString() ?? string.Empty;
+                    var desc = reader["MaterialDescription"]?.ToString() ?? string.Empty;
+                    var unity = (reader["ComponentUnity"]?.ToString() ?? string.Empty).Trim();
+
+                    // Agregar el componente encontrado
+                    table.Rows.Add(compCode, desc, unity);
+
+                    RenderBOMSeleccionEnPanel(table);
+                }
+                else
+                {
+                    MessageBox.Show("No se encontró el componente especificado.", "Sin resultados", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al buscar componente: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private async Task BuscarBOMPorTRWAsync()
+        {
+            var trw = txtBuscar2.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(trw))
+            {
+                MessageBox.Show("Ingrese un TRWNumber.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var materialBase = ExtraerMaterialBase(trw);
+            if (string.IsNullOrEmpty(materialBase))
+            {
+                MessageBox.Show("El TRWNumber es inválido.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+
+                var sql = @"SELECT [Component], [MaterialDescription], [ComponentUnity]
+                            FROM [dbo].[BOM]
+                            WHERE [Material] = @material";
+
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.Add(new SqlParameter("@material", SqlDbType.VarChar, 100) { Value = materialBase });
+
+                var table = new DataTable();
+                table.Columns.Add("Component", typeof(string));
+                table.Columns.Add("MaterialDescription", typeof(string));
+                table.Columns.Add("ComponentUnity", typeof(string));
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var compCode = reader["Component"]?.ToString() ?? string.Empty;
+                    var desc = reader["MaterialDescription"]?.ToString() ?? string.Empty;
+                    var unity = (reader["ComponentUnity"]?.ToString() ?? string.Empty).Trim();
+
+                    if (string.IsNullOrWhiteSpace(unity))
+                        continue;
+
+                    table.Rows.Add(compCode, desc, unity);
+                }
+
+                RenderBOMSeleccionEnPanel(table);
+
+                if (table.Rows.Count == 0)
+                {
+                    MessageBox.Show("No se encontraron componentes para el TRW proporcionado.", "Sin resultados", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al consultar BOM: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void RenderBOMSeleccionEnPanel(DataTable datos)
+        {
+            panel3.SuspendLayout();
+            try
+            {
+                panel3.Controls.Clear();
+                var grid = new DataGridView
+                {
+                    Dock = DockStyle.Fill,
+                    ReadOnly = true,
+                    AutoGenerateColumns = false,
+                    AllowUserToAddRows = false,
+                    AllowUserToDeleteRows = false,
+                    RowHeadersVisible = false,
+                    SelectionMode = DataGridViewSelectionMode.FullRowSelect
+                };
+
+                var colCode = new DataGridViewTextBoxColumn
+                {
+                    Name = "Component",
+                    DataPropertyName = "Component",
+                    HeaderText = "Codigo",
+                    Width = 160
+                };
+                var colDesc = new DataGridViewTextBoxColumn
+                {
+                    Name = "MaterialDescription",
+                    DataPropertyName = "MaterialDescription",
+                    HeaderText = "Nombre del componente",
+                    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                    ReadOnly = true,
+                    SortMode = DataGridViewColumnSortMode.NotSortable
+                };
+                var colAdd = new DataGridViewButtonColumn
+                {
+                    Name = "Add",
+                    HeaderText = "",
+                    Text = "Agregar",
+                    UseColumnTextForButtonValue = true,
+                    Width = 90
+                };
+                var colView = new DataGridViewButtonColumn
+                {
+                    Name = "ViewBOM",
+                    HeaderText = "",
+                    Text = "Ver BOM",
+                    UseColumnTextForButtonValue = true,
+                    Width = 90
+                };
+
+                grid.Columns.Add(colCode);
+                grid.Columns.Add(colDesc);
+                grid.Columns.Add(colAdd);
+                grid.Columns.Add(colView);
+
+                grid.CellContentClick += async (s, e) =>
+                {
+                    if (e.RowIndex < 0) return;
+                    var colName = grid.Columns[e.ColumnIndex].Name;
+                    var drv = grid.Rows[e.RowIndex].DataBoundItem as DataRowView;
+                    var compCode = drv?["Component"]?.ToString() ?? string.Empty;
+                    var compName = drv?["MaterialDescription"]?.ToString() ?? string.Empty;
+
+                    if (colName == "Add")
+                    {
+                        var qty = QuantityPrompt.Show(this, "Agregar componente", $"Ingrese la cantidad para {compCode}", 1m, 3);
+                        if (qty is null) return;
+                        if (qty.Value <= 0)
+                        {
+                            MessageBox.Show("La cantidad debe ser mayor que 0.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+
+                        // Solicitar defecto
+                        string defecto = Microsoft.VisualBasic.Interaction.InputBox($"Ingrese el defecto para el componente {compName}", "Defecto", "");
+                        if (string.IsNullOrWhiteSpace(defecto))
+                        {
+                            MessageBox.Show("Debe ingresar un defecto.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+
+                        var registroId = Guid.NewGuid().ToString();
+
+                        var newRow = _boleta.NewRow();
+                        newRow["Turno"] = string.Empty;
+                        newRow["Linea"] = string.Empty;
+                        newRow["NumeroParte"] = compCode;
+                        newRow["DescripcionDefecto"] = defecto; // Defecto escrito por el usuario
+                        newRow["Cantidad"] = qty.Value;
+                        newRow["ComponenteCodigo"] = compCode;
+                        newRow["Componente"] = compName; // Asegura que aquí se ponga el nombre del componente
+                        newRow["Unidad"] = string.Empty;
+                        newRow["RegistroId"] = registroId;
+                        newRow["Omitido"] = false;
+                        newRow["Origen"] = "COMP";
+                        _boleta.Rows.Add(newRow);
+
+                        MostrarBoletaForm();
+                    }
+                    else if (colName == "ViewBOM")
+                    {
+                        if (!string.IsNullOrWhiteSpace(compCode))
+                        {
+                            await CargarBOMEnPanelPrincipalAsync(compCode);
+                        }
+                    }
+                };
+
+                // terminar configuración del grid y añadir al panel
+                grid.DataSource = datos;
+                panel3.Controls.Add(grid);
+            }
+            finally
+            {
+                panel3.ResumeLayout();
+            }
+        }
+
+        private async Task<DataTable> GetBOMTableAsync(string materialBase)
+        {
+            var table = new DataTable();
+            table.Columns.Add("Component", typeof(string));
+            table.Columns.Add("MaterialDescription", typeof(string));
+            table.Columns.Add("ComponentQuantity", typeof(decimal));
+            table.Columns.Add("ComponentUnity", typeof(string));
+
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+                var sql = @"SELECT [Component], [MaterialDescription], [ComponentQuantity], [ComponentUnity] FROM [dbo].[BOM] WHERE [Material] = @material";
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.Add(new SqlParameter("@material", SqlDbType.VarChar, 100) { Value = materialBase });
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var compCode = reader["Component"]?.ToString() ?? string.Empty;
+                    var desc = reader["MaterialDescription"]?.ToString() ?? string.Empty;
+                    var qtyObj = reader["ComponentQuantity"];
+                    decimal qty = 0;
+                    if (qtyObj != DBNull.Value) qty = Convert.ToDecimal(qtyObj);
+                    var unity = (reader["ComponentUnity"]?.ToString() ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(unity)) continue;
+                    table.Rows.Add(compCode, desc, qty, unity);
+                }
+            }
+            catch
+            {
+                // swallow and return empty table
+            }
+            return table;
+        }
+
+        private async Task<int> AppendSubBOMToGridAsync(string componentCode, DataGridView grid, int insertAfterRowIndex, bool showMessageIfNone = true)
+        {
+            var materialBase = ExtraerMaterialBase(componentCode);
+            if (string.IsNullOrEmpty(materialBase))
+            {
+                if (showMessageIfNone)
+                    MessageBox.Show("El número de componente es inválido.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return 0;
+            }
+
+            var subTable = await GetBOMTableAsync(materialBase);
+            if (subTable.Rows.Count == 0)
+            {
+                if (showMessageIfNone)
+                    MessageBox.Show("Este componente no cuenta con sub-BOM.", "Sin BOM", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return 0;
+            }
+
+            // Obtener la tabla actual enlazada al grid
+            if (grid.DataSource is not DataTable dt) return 0;
+
+            // Insertar cada fila de subTable debajo de la fila seleccionada, en orden
+            int insertPos = insertAfterRowIndex + 1;
+            foreach (DataRow r in subTable.Rows)
+            {
+                var newRow = dt.NewRow();
+                newRow["Component"] = r["Component"]?.ToString() ?? string.Empty;
+                // Indentar descripción para mostrar que es subcomponente
+                newRow["MaterialDescription"] = "   └ " + (r["MaterialDescription"]?.ToString() ?? string.Empty);
+                newRow["ComponentQuantity"] = r["ComponentQuantity"] != DBNull.Value ? r["ComponentQuantity"] : 0m;
+                newRow["ComponentUnity"] = r["ComponentUnity"]?.ToString() ?? string.Empty;
+                dt.Rows.InsertAt(newRow, Math.Min(insertPos, dt.Rows.Count));
+                insertPos++;
+            }
+
+            // Refrescar selección para la primera de las insertadas
+            if (grid.Rows.Count > insertAfterRowIndex + 1)
+            {
+                grid.CurrentCell = grid.Rows[insertAfterRowIndex + 1].Cells[grid.Columns["ComponentQuantity"].Index];
+                grid.BeginEdit(true);
+            }
+
+            return subTable.Rows.Count;
+        }
+
+        // Ajusta el tamaño y posición de tabMain para dejar margen uniforme
+        private void AjustarTabMainMargen()
+        {
+            int margen = 30;
+            int top = panel1.Bottom + margen;
+            int left = margen;
+            int width = this.ClientSize.Width - margen * 2;
+            int height = this.ClientSize.Height - top - margen;
+            tabMain.Location = new System.Drawing.Point(left, top);
+            tabMain.Size = new System.Drawing.Size(Math.Max(100, width), Math.Max(100, height));
+        }
+
+        private void InitializeSuggestionBox()
+        {
+            suggestionBox = new ListBox
+            {
+                Visible = false,
+                Height = 120,
+                Width = 200,
+                BackColor = System.Drawing.Color.White,
+                ForeColor = System.Drawing.Color.Black
+            };
+            suggestionBox.Click += SuggestionBox_Click;
+            suggestionBox.KeyDown += SuggestionBox_KeyDown;
+            suggestionBox.TabStop = false;
+        }
+
+        private void HandleAutoCompleteKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (suggestionBox?.Visible == true)
+            {
+                switch (e.KeyCode)
+                {
+                    case Keys.Down:
+                        e.SuppressKeyPress = true;
+                        if (suggestionBox.Items.Count > 0)
+                        {
+                            suggestionBox.SelectedIndex = Math.Min(suggestionBox.SelectedIndex + 1, suggestionBox.Items.Count - 1);
+                        }
+                        break;
+                    case Keys.Up:
+                        e.SuppressKeyPress = true;
+                        if (suggestionBox.Items.Count > 0)
+                        {
+                            suggestionBox.SelectedIndex = Math.Max(suggestionBox.SelectedIndex - 1, 0);
+                        }
+                        break;
+                    case Keys.Enter:
+                        e.SuppressKeyPress = true;
+                        if (suggestionBox.SelectedItem != null && sender is TextBox tb)
+                        {
+                            tb.Text = suggestionBox.SelectedItem.ToString();
+                            tb.SelectionStart = tb.Text.Length;
+                            HideSuggestions();
+                        }
+                        break;
+                    case Keys.Escape:
+                        e.SuppressKeyPress = true;
+                        HideSuggestions();
+                        break;
+                }
+            }
+        }
+
+        private void SuggestionBox_KeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter && suggestionBox?.SelectedItem != null && currentSuggestingTextBox != null)
+            {
+                currentSuggestingTextBox.Text = suggestionBox.SelectedItem.ToString();
+                currentSuggestingTextBox.SelectionStart = currentSuggestingTextBox.Text.Length;
+                HideSuggestions();
+                currentSuggestingTextBox.Focus();
+            }
+        }
+
+        private void SuggestionBox_Click(object? sender, EventArgs e)
+        {
+            if (suggestionBox?.Visible == true && currentSuggestingTextBox != null && suggestionBox.SelectedItem != null)
+            {
+                currentSuggestingTextBox.Text = suggestionBox.SelectedItem.ToString();
+                suggestionBox.Visible = false;
+                currentSuggestingTextBox.SelectionStart = currentSuggestingTextBox.Text.Length;
+                currentSuggestingTextBox.Focus();
+            }
+        }
+
+        private void ShowSuggestions(TextBox tb, List<string> suggestions)
+        {
+            if (suggestionBox == null) return;
+            if (suggestions.Count == 0)
+            {
+                suggestionBox.BeginUpdate();
+                suggestionBox.Items.Clear();
+                suggestionBox.Items.Add("(Sin resultados)");
+                suggestionBox.EndUpdate();
+                suggestionBox.Visible = true;
+                var screenPoint = tb.PointToScreen(new System.Drawing.Point(0, tb.Height));
+                var formPoint = this.PointToClient(screenPoint);
+                suggestionBox.SetBounds(formPoint.X, formPoint.Y, tb.Width, suggestionBox.Height);
+                suggestionBox.BringToFront();
+                return;
+            }
+
+            // Si hay una sola sugerencia y es una coincidencia perfecta con el patrón esperado
+            var currentText = tb.Text.Trim();
+            if (suggestions.Count == 1 && !string.IsNullOrEmpty(currentText))
+            {
+                var suggestion = suggestions[0];
+                // Auto-completar si la sugerencia contiene el texto ingresado
+                if (suggestion.Contains(currentText, StringComparison.OrdinalIgnoreCase))
+                {
+                    // No mostrar sugerencias, directamente completar
+                    tb.Text = suggestion;
+                    tb.SelectionStart = tb.Text.Length;
+                    HideSuggestions();
+                    return;
+                }
+            }
+
+            suggestionBox.BeginUpdate();
+            suggestionBox.Items.Clear();
+            foreach (var s in suggestions) suggestionBox.Items.Add(s);
+            
+            // Auto-seleccionar el primer elemento
+            if (suggestions.Count > 0)
+            {
+                suggestionBox.SelectedIndex = 0;
+            }
+            
+            suggestionBox.EndUpdate();
+            if (suggestionBox.Parent != null)
+                suggestionBox.Parent.Controls.Remove(suggestionBox);
+            this.Controls.Add(suggestionBox);
+            var screenPoint2 = tb.PointToScreen(new System.Drawing.Point(0, tb.Height));
+            var formPoint2 = this.PointToClient(screenPoint2);
+            suggestionBox.SetBounds(formPoint2.X, formPoint2.Y, tb.Width, suggestionBox.Height);
+            suggestionBox.BringToFront();
+            suggestionBox.Visible = true;
+            currentSuggestingTextBox = tb;
+        }
+
+        private void HideSuggestions()
+        {
+            if (suggestionBox != null)
+            {
+                suggestionBox.Visible = false;
+                if (suggestionBox.Parent != null)
+                    suggestionBox.Parent.Controls.Remove(suggestionBox);
+            }
+        }
+
+        private async Task SuggestLineaAsync()
+        {
+            var text = txtLinea.Text.Trim();
+            if (text.Length < 1) { HideSuggestions(); return; }
+            
+            var list = new List<string>();
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+                
+                // Buscar líneas que contengan el texto ingresado, priorizando las que terminan con el texto
+                var sql = @"SELECT DISTINCT [Line] FROM [dbo].[LineRejects] 
+                           WHERE [Line] LIKE @q 
+                           ORDER BY 
+                               CASE WHEN [Line] LIKE '%' + @text THEN 1 ELSE 2 END,
+                               [Line]";
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@q", "%" + text + "%");
+                cmd.Parameters.AddWithValue("@text", text);
+                
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var val = reader[0]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(val)) list.Add(val);
+                }
+            }
+            catch { }
+            
+            ShowSuggestions(txtLinea, list);
+        }
+
+        private async Task SuggestNumberAsync()
+        {
+            var text = txtNumber.Text.Trim();
+            if (text.Length < 1) { HideSuggestions(); return; }
+            
+            var list = new List<string>();
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+                
+                // Buscar números de parte que contengan el texto ingresado, priorizando coincidencias exactas
+                var sql = @"SELECT DISTINCT [TRWNumber] FROM [dbo].[LineRejects] 
+                           WHERE [TRWNumber] LIKE @q 
+                           ORDER BY 
+                               CASE WHEN [TRWNumber] LIKE @text + '%' THEN 1 ELSE 2 END,
+                               [TRWNumber]";
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@q", "%" + text + "%");
+                cmd.Parameters.AddWithValue("@text", text);
+                
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var val = reader[0]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(val)) list.Add(val);
+                }
+            }
+            catch { }
+            
+            ShowSuggestions(txtNumber, list);
+        }
+
+        private async Task SuggestDefectoAsync()
+        {
+            var text = txtDefecto.Text.Trim();
+            if (text.Length < 1) { HideSuggestions(); return; }
+            
+            var list = new List<string>();
+            try
+            {
+                await using var conn = new SqlConnection(_DBConnection);
+                await conn.OpenAsync();
+                
+                // Buscar defectos que contengan el texto ingresado, priorizando los que comienzan con el texto
+                var sql = @"SELECT DISTINCT [RejectTypeNameES] FROM [dbo].[LineRejects] 
+                           WHERE [RejectTypeNameES] LIKE @q 
+                           ORDER BY 
+                               CASE WHEN [RejectTypeNameES] LIKE @text + '%' THEN 1 ELSE 2 END,
+                               [RejectTypeNameES]";
+                await using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@q", "%" + text + "%");
+                cmd.Parameters.AddWithValue("@text", text);
+                
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var val = reader[0]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(val)) list.Add(val);
+                }
+            }
+            catch { }
+            
+            ShowSuggestions(txtDefecto, list);
+        }
+    }
+}

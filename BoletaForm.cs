@@ -33,6 +33,7 @@ namespace ScrapSystemm
             ApplyFilter(turnoActual, lineaActual, numeroParteActual);
 
             btnImprimir.Click += BtnImprimir_Click;
+            btnEditar.Click += BtnEditar_Click;
         }
 
         private void BtnImprimir_Click(object? sender, EventArgs e)
@@ -76,6 +77,12 @@ namespace ScrapSystemm
                     Height = 900
                 };
                 dlg.ShowDialog(this);
+
+                // Limpiar la bitácora después de imprimir
+                _view.Table?.Clear();
+                _currentGrouped?.Clear();
+                gridBoleta.DataSource = null;
+                gridBoleta.Refresh();
             }
             catch (Exception ex)
             {
@@ -174,7 +181,7 @@ namespace ScrapSystemm
         private static string Norm(string? s)
             => (s ?? string.Empty).Trim().ToUpperInvariant();
 
-        private static DataTable BuildGroupedTable(DataView view)
+        public static DataTable BuildGroupedTable(DataView view)
         {
             var table = new DataTable();
             table.Columns.Add("Turno", typeof(string));
@@ -216,7 +223,7 @@ namespace ScrapSystemm
                 table.Rows.Add(row);
             }
 
-            // 2) Resto de registros (RECHAZO, etc.) con lógica de faltantes y conteo por tiro
+            // 2) Resto de registros (RECHAZO, SUBBOM, COMP, etc.)
             var normalRows = rows.Except(trwRows).ToList();
             if (normalRows.Count > 0)
             {
@@ -224,24 +231,9 @@ namespace ScrapSystemm
                     .GroupBy(r => Convert.ToString(r["RegistroId"]))
                     .Where(g => !string.IsNullOrEmpty(g.Key));
 
-                var agg = new Dictionary<string, (HashSet<string> Turnos, string Linea, string Numero, string Defecto, string Componentes, int Count)>();
-
                 foreach (var reg in registros)
                 {
-                    var activos = reg.Where(r =>
-                    {
-                        var qty = r["Cantidad"] != DBNull.Value ? Convert.ToDecimal(r["Cantidad"]) : 0m;
-                        var omit = view.Table.Columns.Contains("Omitido") && r["Omitido"] != DBNull.Value && Convert.ToBoolean(r["Omitido"]);
-                        return qty > 0m && !omit;
-                    }).ToList();
-                    var omitidos = reg.Where(r =>
-                    {
-                        var qty = r["Cantidad"] != DBNull.Value ? Convert.ToDecimal(r["Cantidad"]) : 0m;
-                        var omit = view.Table.Columns.Contains("Omitido") && r["Omitido"] != DBNull.Value && Convert.ToBoolean(r["Omitido"]);
-                        return qty <= 0m || omit;
-                    }).ToList();
-
-                    var baseRows = activos.Count > 0 ? activos : omitidos;
+                    var baseRows = reg.ToList();
                     if (baseRows.Count == 0) continue;
 
                     var first = baseRows.First();
@@ -250,61 +242,46 @@ namespace ScrapSystemm
                     string numero = Convert.ToString(first["NumeroParte"]) ?? string.Empty;
                     string defecto = Convert.ToString(first["DescripcionDefecto"]) ?? string.Empty;
 
+                    // Mostrar TODOS los componentes omitidos (qty=0) de cualquier nivel
+                    var omitidos = baseRows.Where(r => r["Omitido"] != DBNull.Value && Convert.ToBoolean(r["Omitido"]))
+                                           .Select(r => $"- {r["ComponenteCodigo"]} | {r["Componente"]} (x0 {r["Unidad"]})").ToList();
                     string componentesTexto;
-                    string faltantesKey;
-                    if (omitidos.Count == 0)
+                    if (omitidos.Count > 0)
                     {
-                        componentesTexto = "Pieza terminada";
-                        faltantesKey = "__TERMINADA__";
+                        componentesTexto = string.Join("\n", omitidos);
                     }
                     else
                     {
-                        var faltantes = omitidos
-                            .Select(r => new
-                            {
-                                Code = (r["ComponenteCodigo"] ?? string.Empty).ToString(),
-                                Desc = (r["Componente"] ?? string.Empty).ToString(),
-                                Unit = (r["Unidad"] ?? string.Empty).ToString()
-                            })
-                            .Select(x => new { Code = Norm(x.Code), Desc = Norm(x.Desc), Unit = Norm(x.Unit), CodeRaw = x.Code, DescRaw = x.Desc, UnitRaw = x.Unit })
-                            .OrderBy(x => x.Code)
-                            .ThenBy(x => x.Desc)
-                            .ThenBy(x => x.Unit)
-                            .ToList();
-
-                        faltantesKey = string.Join("|", faltantes.Select(x => $"{x.Code}~{x.Desc}~{x.Unit}"));
-
-                        var lines = faltantes.Select(x => $"- {x.CodeRaw} | {x.DescRaw} (x0 {x.UnitRaw})");
-                        componentesTexto = string.Join(Environment.NewLine, lines);
+                        // Si es un registro de componente individual (COMP), mostrar el nombre del componente
+                        if (first.Row.Table.Columns.Contains("Origen") && Convert.ToString(first["Origen"]) == "COMP")
+                        {
+                            componentesTexto = Convert.ToString(first["Componente"]) ?? string.Empty;
+                        }
+                        else
+                        {
+                            componentesTexto = "Pieza terminada";
+                        }
                     }
 
-                    var key = string.Join("||", new[] { Norm(linea), Norm(numero), Norm(defecto), faltantesKey });
-                    if (agg.TryGetValue(key, out var entry))
+                    // Tomar la cantidad EXACTA que el usuario ingresó (de la primer fila del grupo)
+                    int cantidad = 1;
+                    if (first["Cantidad"] != DBNull.Value)
                     {
-                        entry.Turnos.Add(Norm(turno));
-                        agg[key] = (entry.Turnos, entry.Linea, entry.Numero, entry.Defecto, entry.Componentes, entry.Count + 1);
+                        if (first["Cantidad"] is int i)
+                            cantidad = i;
+                        else if (first["Cantidad"] is decimal d)
+                            cantidad = (int)Math.Round(d, MidpointRounding.AwayFromZero);
+                        else
+                            int.TryParse(first["Cantidad"].ToString(), out cantidad);
                     }
-                    else
-                    {
-                        var turns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        if (!string.IsNullOrWhiteSpace(turno)) turns.Add(Norm(turno));
-                        agg[key] = (turns, linea.Trim(), numero.Trim(), defecto.Trim(), componentesTexto, 1);
-                    }
-                }
 
-                foreach (var kvp in agg
-                             .OrderBy(v => Norm(v.Value.Linea))
-                             .ThenBy(v => Norm(v.Value.Numero))
-                             .ThenBy(v => Norm(v.Value.Defecto)))
-                {
                     var row = table.NewRow();
-                    var turnos = kvp.Value.Turnos.OrderBy(t => t).ToArray();
-                    row["Turno"] = string.Join(",", turnos);
-                    row["Linea"] = kvp.Value.Linea;
-                    row["NumeroParte"] = kvp.Value.Numero;
-                    row["DescripcionDefecto"] = kvp.Value.Defecto;
-                    row["Componentes"] = kvp.Value.Componentes;
-                    row["Cantidad"] = kvp.Value.Count;
+                    row["Turno"] = turno;
+                    row["Linea"] = linea;
+                    row["NumeroParte"] = numero;
+                    row["DescripcionDefecto"] = defecto;
+                    row["Componentes"] = componentesTexto;
+                    row["Cantidad"] = cantidad;
                     table.Rows.Add(row);
                 }
             }
@@ -316,6 +293,108 @@ namespace ScrapSystemm
         {
             this.DialogResult = DialogResult.OK;
             this.Close();
+        }
+
+        private void BtnEditar_Click(object? sender, EventArgs e)
+        {
+            if (gridBoleta.CurrentRow == null)
+            {
+                MessageBox.Show("Seleccione un registro para editar.", "Editar", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var selectedRow = gridBoleta.CurrentRow;
+            var turno = Convert.ToString(selectedRow.Cells["Turno"].Value) ?? string.Empty;
+            var linea = Convert.ToString(selectedRow.Cells["Linea"].Value) ?? string.Empty;
+            var numeroParte = Convert.ToString(selectedRow.Cells["NumeroParte"].Value) ?? string.Empty;
+            var defectoActual = Convert.ToString(selectedRow.Cells["DescripcionDefecto"].Value) ?? string.Empty;
+            var cantidadActual = Convert.ToString(selectedRow.Cells["Cantidad"].Value) ?? "1";
+
+            // Crear un formulario simple para editar
+            using var editForm = new Form
+            {
+                Text = "Editar Registro",
+                Size = new Size(400, 300),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false
+            };
+
+            var lblTurno = new Label { Text = "Turno:", Location = new Point(10, 20), Size = new Size(80, 23) };
+            var txtTurno = new TextBox { Text = turno, Location = new Point(100, 20), Size = new Size(250, 23) };
+
+            var lblLinea = new Label { Text = "Línea:", Location = new Point(10, 50), Size = new Size(80, 23) };
+            var txtLinea = new TextBox { Text = linea, Location = new Point(100, 50), Size = new Size(250, 23) };
+
+            var lblNumero = new Label { Text = "Número:", Location = new Point(10, 80), Size = new Size(80, 23) };
+            var txtNumero = new TextBox { Text = numeroParte, Location = new Point(100, 80), Size = new Size(250, 23) };
+
+            var lblDefecto = new Label { Text = "Defecto:", Location = new Point(10, 110), Size = new Size(80, 23) };
+            var txtDefecto = new TextBox { Text = defectoActual, Location = new Point(100, 110), Size = new Size(250, 23), Multiline = true, Height = 60 };
+
+            var lblCantidad = new Label { Text = "Cantidad:", Location = new Point(10, 180), Size = new Size(80, 23) };
+            var numCantidad = new NumericUpDown { 
+                Value = decimal.TryParse(cantidadActual, out var cant) ? cant : 1,
+                Location = new Point(100, 180), 
+                Size = new Size(100, 23),
+                Minimum = 1,
+                Maximum = 9999
+            };
+
+            var btnGuardar = new Button { Text = "Guardar", Location = new Point(200, 220), Size = new Size(80, 30) };
+            var btnCancelar = new Button { Text = "Cancelar", Location = new Point(290, 220), Size = new Size(80, 30) };
+
+            btnGuardar.Click += (s, args) =>
+            {
+                // Actualizar los registros originales en la DataTable
+                UpdateOriginalRecords(turno, linea, numeroParte, defectoActual,
+                                    txtTurno.Text, txtLinea.Text, txtNumero.Text, txtDefecto.Text, (int)numCantidad.Value);
+                
+                // Refrescar la vista
+                _currentGrouped = BuildGroupedTable(_view);
+                gridBoleta.DataSource = _currentGrouped;
+                gridBoleta.Refresh();
+                
+                editForm.DialogResult = DialogResult.OK;
+                editForm.Close();
+            };
+
+            btnCancelar.Click += (s, args) =>
+            {
+                editForm.DialogResult = DialogResult.Cancel;
+                editForm.Close();
+            };
+
+            editForm.Controls.AddRange(new Control[] {
+                lblTurno, txtTurno, lblLinea, txtLinea, lblNumero, txtNumero,
+                lblDefecto, txtDefecto, lblCantidad, numCantidad, btnGuardar, btnCancelar
+            });
+
+            editForm.ShowDialog(this);
+        }
+
+        private void UpdateOriginalRecords(string oldTurno, string oldLinea, string oldNumero, string oldDefecto,
+                                         string newTurno, string newLinea, string newNumero, string newDefecto, int newCantidad)
+        {
+            // Buscar registros que coincidan con los valores originales
+            var originalTable = _view.Table;
+            var matchingRows = originalTable.AsEnumerable()
+                .Where(row => Convert.ToString(row["Turno"]) == oldTurno &&
+                             Convert.ToString(row["Linea"]) == oldLinea &&
+                             Convert.ToString(row["NumeroParte"]) == oldNumero &&
+                             Convert.ToString(row["DescripcionDefecto"]) == oldDefecto)
+                .ToList();
+
+            // Actualizar todos los registros coincidentes
+            foreach (var row in matchingRows)
+            {
+                row["Turno"] = newTurno;
+                row["Linea"] = newLinea;
+                row["NumeroParte"] = newNumero;
+                row["DescripcionDefecto"] = newDefecto;
+                row["Cantidad"] = newCantidad;
+            }
         }
     }
 }

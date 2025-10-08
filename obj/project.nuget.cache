@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "kd84uJB/Fyw=",
+  "dgSpecHash": "UTXVzyjA7dc=",
   "success": true,
-  "projectFilePath": "C:\\Users\\MXJOFRA\\OneDrive - zf-lifetec\\Desktop\\ScrapSystemm\\ScrapSystemm\\ScrapSystemm.csproj",
+  "projectFilePath": "C:\\Users\\MXJOFRA\\Desktop\\ScrapSystem\\ScrapSystem\\ScrapSystemm.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\MXJOFRA\\.nuget\\packages\\azure.core\\1.47.1\\azure.core.1.47.1.nupkg.sha512",
     "C:\\Users\\MXJOFRA\\.nuget\\packages\\azure.identity\\1.14.2\\azure.identity.1.14.2.nupkg.sha512",
